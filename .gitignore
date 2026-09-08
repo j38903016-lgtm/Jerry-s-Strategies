@@ -1,0 +1,7 @@
+.env
+.streamlit/secrets.toml
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+a_share_pipeline.sqlite3
