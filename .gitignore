@@ -1,0 +1,7 @@
+.env
+.streamlit/secrets.toml
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+us_stock_pipeline.sqlite3
