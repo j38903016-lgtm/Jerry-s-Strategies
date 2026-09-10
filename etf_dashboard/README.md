@@ -8,6 +8,10 @@
 
 数据文件：`data/dashboard.sqlite3`
 
+公网看板：https://jerry-a-share-etf.streamlit.app/
+
+GitHub 路径：https://github.com/j38903016-lgtm/Jerry-s-Strategies/tree/main/etf_dashboard
+
 服务器模型管线在每个工作日北京时间 06:00 运行；完整成功后，发布脚本自动更新本目录快照。每个代码均为可独立交易的场内 ETF，未使用成分股代替 ETF。
 
 This is the GitHub/Streamlit Community Cloud package for the A-share ETF strategy. It contains only the dashboard code and a compact snapshot of the latest complete production run. API keys, server credentials, raw training data, and `.env` files are excluded.
