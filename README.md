@@ -12,7 +12,7 @@ This branch is the lightweight public dashboard package for the US-stock daily m
 - Entry point: `streamlit_app.py`
 - Python dependencies: `requirements.txt`
 
-The server retrains the 65-symbol universe at 06:00 America/New_York on weekdays using a daylight-saving-safe scheduler. It uses the prior completed US trading session, starts 3.5 hours before the 09:30 market open, then exports and pushes a new `data/dashboard.sqlite3`; Streamlit Community Cloud redeploys from this branch automatically.
+The server retrains the 65-symbol universe at 06:00 America/New_York on weekdays using a daylight-saving-safe scheduler. It uses the prior completed US trading session and starts 3.5 hours before the 09:30 market open. Transient data failures are retried in place; an incomplete run resumes the same `run_id` and processes only missing or stale symbols. A snapshot is published only after all 65 symbols share one synchronized data and live-prediction date. GitHub pushes use SSH port 443 with bounded retries, and Streamlit Community Cloud redeploys from this branch automatically.
 
 ## 美股参数调整 / US Parameter Adjustments
 
