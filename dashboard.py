@@ -21,7 +21,7 @@ DB_PATH = Path(
         str(SERVER_DB_PATH if SERVER_DB_PATH.exists() else BUNDLED_DB_PATH),
     )
 )
-SECTORS = {
+BASELINE_SECTORS = {
     "人工智能": ["MSFT", "GOOGL", "AMZN", "META", "ORCL", "CRM", "PLTR", "NVDA", "AMD", "AVGO"],
     "机器人": ["ISRG", "ROK", "TER", "CGNX", "SYM", "ZBRA", "PATH", "MBLY", "AUR", "ABB"],
     "芯片": ["NVDA", "AMD", "AVGO", "INTC", "QCOM", "MU", "MRVL", "ARM", "TXN", "ADI"],
@@ -29,6 +29,28 @@ SECTORS = {
     "银行": ["JPM", "BAC", "WFC", "C", "GS", "MS", "USB", "PNC", "TFC", "COF"],
     "黄金": ["NEM", "EGO", "AEM", "KGC", "AU", "GFI", "HMY", "WPM", "FNV", "RGLD"],
     "有色金属": ["FCX", "SCCO", "AA", "CENX", "TECK", "ALB", "SQM", "MP", "LAC", "NEM"],
+}
+ADDED_SECTORS_20260922 = {
+    "人工智能": ["ADBE", "NOW", "IBM"],
+    "机器人": ["HON", "EMR", "ETN"],
+    "芯片": ["SWKS", "QRVO", "MTSI"],
+    "半导体": ["GFS", "ENTG", "AMKR"],
+    "银行": ["FITB", "STT", "NTRS"],
+    "黄金": ["IAG", "AGI", "OR"],
+    "有色金属": ["BHP", "RIO", "VALE"],
+    "医疗保健": ["LLY", "JNJ", "UNH", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "GILD", "MDT", "SYK", "BSX"],
+    "必需消费": ["WMT", "COST", "PG", "KO", "PEP", "PM", "MO", "CL", "MDLZ", "KHC", "SYY", "KMB", "KR"],
+    "公用事业": ["NEE", "SO", "DUK", "AEP", "SRE", "D", "EXC", "XEL", "ED", "PEG", "WEC", "ES", "AWK"],
+    "房地产": ["PLD", "AMT", "EQIX", "WELL", "SPG", "O", "DLR", "PSA", "CCI", "VICI", "ESS", "MAA", "CBRE"],
+    "能源": ["XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "OXY", "KMI", "WMB", "LNG", "OKE"],
+    "可选消费": ["TSLA", "HD", "MCD", "NKE", "SBUX", "LOW", "TJX", "BKNG", "CMG", "ORLY", "AZO", "MAR", "GM"],
+    "通信服务": ["NFLX", "DIS", "CMCSA", "T", "TMUS", "VZ", "CHTR", "LYV", "TTWO", "WBD", "SPOT", "FOXA", "PINS"],
+    "综合工业/国防": ["GE", "RTX", "LMT", "NOC", "GD", "BA", "CAT", "DE", "UPS", "FDX", "UNP", "CSX", "WM"],
+    "保险": ["CB", "BRO", "AON", "PGR", "TRV", "ALL", "MET", "PRU", "AFL", "HIG", "ACGL", "CINF", "AJG"],
+}
+SECTORS = {
+    sector: list(BASELINE_SECTORS.get(sector, [])) + list(added_symbols)
+    for sector, added_symbols in ADDED_SECTORS_20260922.items()
 }
 SECTOR_EN = {
     "人工智能": "Artificial Intelligence",
@@ -38,6 +60,18 @@ SECTOR_EN = {
     "银行": "Banking",
     "黄金": "Gold",
     "有色金属": "Non-ferrous Metals",
+    "医疗保健": "Health Care",
+    "必需消费": "Consumer Staples",
+    "公用事业": "Utilities",
+    "房地产": "Real Estate",
+    "能源": "Energy",
+    "可选消费": "Consumer Discretionary",
+    "通信服务": "Communication Services",
+    "综合工业/国防": "Industrials & Defense",
+    "保险": "Insurance",
+}
+NEW_STOCK_CODES = {
+    symbol for symbols in ADDED_SECTORS_20260922.values() for symbol in symbols
 }
 SYMBOL_SECTOR = {symbol: sector for sector, symbols in SECTORS.items() for symbol in symbols}
 EXPECTED_SYMBOL_COUNT = len(SYMBOL_SECTOR)
@@ -615,13 +649,14 @@ else:
             )
             for _, stock_row in sector_models.iterrows():
                 symbol = stock_row["symbol"]
+                new_badge = " 🆕新增/NEW" if symbol in NEW_STOCK_CODES else ""
                 stock_signal = sector_signals[sector_signals["symbol"] == symbol] if not sector_signals.empty else pd.DataFrame()
                 suffix = "—"
                 if not stock_signal.empty:
                     signal_en = "BUY" if stock_signal.iloc[0]["kind"] == "买入" else "SELL"
                     suffix = f"{stock_signal.iloc[0]['display_label']}/{signal_en} {float(stock_signal.iloc[0]['probability']):.1%}"
                 stock_title = (
-                    f"`{symbol}`　│　{pct(stock_row['test_total_return'])}　│　{pct(stock_row['test_annual_return'])}　│　"
+                    f"`{symbol}`{new_badge}　│　{pct(stock_row['test_total_return'])}　│　{pct(stock_row['test_annual_return'])}　│　"
                     f"{pct(stock_row['test_max_drawdown'])}　│　{number(stock_row['test_sharpe'])}　│　{suffix}"
                 )
                 with st.expander(stock_title, expanded=False):
