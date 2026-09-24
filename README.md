@@ -1,49 +1,63 @@
-# 美股拐点预测看板
+# US Stock Turning-Point Forecast Pipeline
 
-## US Stock Turning-Point Forecast Dashboard
+<sub>美股拐点预测 Pipeline 与公开看板（当前仓库主策略）。</sub>
 
-本分支是美股每日模型 pipeline 的轻量公开看板包。它只包含 Streamlit 展示代码和最新完整生产批次的 SQLite 快照，不包含 Alpha Vantage API 密钥、`.env`、训练特征库或服务器信息。
+This repository's `main` branch contains the primary US-equity strategy, its public Streamlit dashboard, the latest complete dashboard snapshot, and the complete reproducible pipeline source under [`pipeline/`](./pipeline/).
 
-This branch is the lightweight public dashboard package for the US-stock daily model pipeline. It contains only the Streamlit presentation code and the latest complete production snapshot. API keys, environment files, training features, and server details are excluded.
+<sub>`main` 分支现以美股策略为主，包含公开看板、最新完整快照，以及位于 `pipeline/` 目录中的完整可复现源码。</sub>
 
-## Streamlit Community Cloud
+The previous A-share root strategy is preserved on the [`a-share-archive-20260924`](../../tree/a-share-archive-20260924) branch. The [`us-stock-dashboard`](../../tree/us-stock-dashboard) branch remains synchronized for compatibility with the existing Streamlit deployment.
 
-- Branch: `us-stock-dashboard`
-- Entry point: `streamlit_app.py`
-- Python dependencies: `requirements.txt`
+<sub>原 A 股根策略已归档至 `a-share-archive-20260924`；`us-stock-dashboard` 分支继续同步，以兼容现有 Streamlit 部署。</sub>
 
-The server retrains a 203-symbol universe at 06:00 America/New_York on weekdays using a daylight-saving-safe scheduler. The universe has 16 sectors with 13 slots each (208 slots and 203 unique symbols); all original 65 symbols remain, and 138 symbols were added on 2026-09-22. Sector coverage follows the [MSCI/S&P GICS framework](https://www.msci.com/documents/1296102/11185224/GICS%2BMethodology%2B2023.pdf), with offensive, cyclical, and defensive groups informed by [Fidelity's business-cycle sector research](https://www.fidelity.com/learning-center/trading-investing/markets-sectors/business-cycle-investing-implications). This is balanced sector coverage, not strict beta or factor neutrality. Newly added symbols are marked “🆕新增/NEW” in the dashboard.
+## Strategy at a glance
 
-The pipeline uses the prior completed US trading session and starts 3.5 hours before the 09:30 market open. Transient data failures are retried in place; an incomplete run resumes the same `run_id` and processes only missing or stale symbols. A snapshot is published only after all 203 symbols share one synchronized data and live-prediction date. GitHub pushes use SSH port 443 with bounded retries, and Streamlit Community Cloud redeploys from this branch automatically.
+- **Universe:** 16 balanced sector groups, 13 slots per group, 203 unique US-listed symbols.
+- **Data:** Alpha Vantage daily adjusted OHLCV, using only completed New York trading sessions.
+- **Signals:** turning-point labels, engineered price/volume factors, purged time-series validation, and Optuna-tuned XGBoost.
+- **Execution assumption:** signals are generated after the close for the next market open, with fees and slippage included in backtests.
+- **Production schedule:** 06:00 `America/New_York` on weekdays, safely handling daylight-saving changes.
+- **Parallelism:** 16 symbol workers × 4 XGBoost threads per model.
+- **Publishing:** a snapshot is released only when all 203 symbols have synchronized raw-data and live-prediction dates.
 
-## 美股参数调整 / US Parameter Adjustments
+<sub>策略覆盖 16 个攻守均衡板块、203 只去重股票；使用已完结美股交易日数据，在收盘后生成下一开盘信号。生产训练采用 16 进程 × 每模型 4 线程，只有 203 只全部完整且日期一致时才发布。</sub>
 
-相对 A 股源 pipeline，仅调整以下 Optuna 搜索候选或范围；特征、标签、purged CV、评分、早停、回测、手续费、滑点与看板流程不变。
+## Repository layout
 
-| Parameter | A-share source | US pipeline |
-|---|---:|---:|
-| `percentile_threshold` | 80–96 | 82–97 |
-| `price_percentile_buy` | 5–25 | 5–30 |
-| `price_percentile_sell` | 75–95 | 70–95 |
-| `min_price_gap` | 0.005–0.05 | 0.0075–0.06 |
-| `n_estimators` | 600–1200 | 650–1300 |
-| `learning_rate` | 0.01, 0.02, 0.03 | 0.01, 0.015, 0.02, 0.03 |
-| `max_depth` | 2, 3 | 2, 3, 4 |
-| `gamma` | 0.5, 1, 2 | 0.5, 1, 1.5, 2 |
-| `min_child_weight` | 10, 20 | 8, 12, 20 |
-| `max_delta_step` | 1, 2 | 1, 2 (unchanged) |
-| `subsample` | 0.6, 0.8 | 0.65, 0.8, 0.9 |
-| `colsample_bytree` | 0.5, 0.7 | 0.55, 0.7, 0.85 |
-| `reg_lambda` | 5, 10 | 5, 8, 12 |
-| `reg_alpha` | 1, 3 | 0.5, 1.5, 3 |
+| Path | Purpose |
+|---|---|
+| `streamlit_app.py` | Streamlit Community Cloud entry point |
+| `dashboard.py` | Read-only bilingual US-stock dashboard |
+| `data/dashboard.sqlite3` | Compact snapshot of the latest complete production run |
+| `pipeline/pipeline.py` | Full data, feature, label, model, backtest, and persistence pipeline |
+| `pipeline/run_pipeline.sh` | Locked production runner with targeted automatic recovery |
+| `pipeline/run_pipeline_at_6_et.sh` | Daylight-saving-safe 06:00 ET scheduler guard |
+| `pipeline/resume_pipeline.sh` | Explicit same-`run_id` targeted resume |
+| `pipeline/export_dashboard_snapshot.py` | Complete-run snapshot exporter |
+| `pipeline/publish_dashboard_snapshot.sh` | Dual-branch GitHub publisher |
+| `pipeline/.env.example` | Safe configuration template; contains no credentials |
 
-## 本地预览 / Local Preview
+<sub>根目录用于公网 Streamlit 展示；`pipeline/` 保存完整训练、补跑、调度、快照和发布代码。正式 `.env`、API Key、主数据库、日志、虚拟环境及训练导出不会进入 Git。</sub>
+
+## Run the dashboard locally
 
 ```bash
 python -m pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-模型信号仅供研究展示，不构成投资建议。
+The bundled database is read-only and contains only the latest publishable dashboard data. See [`pipeline/README.md`](./pipeline/README.md) for full pipeline setup and production operation.
 
-Model signals are for research display only and are not investment advice.
+<sub>内置数据库仅供只读展示；完整 pipeline 安装、定时运行和补跑方法见 `pipeline/README.md`。</sub>
+
+## Security and reproducibility
+
+Credentials are read from environment variables. The repository intentionally excludes `.env`, SSH keys, raw training databases, logs, exports, backups, PID files, and virtual environments. `.env.example` uses placeholders only.
+
+<sub>凭据仅通过环境变量读取；仓库明确排除正式 `.env`、SSH 密钥、训练数据库、日志、导出、备份、PID 和虚拟环境。</sub>
+
+## Research disclaimer
+
+This project is for quantitative research and monitoring only. Model signals are not investment advice, and sector-count balance is not the same as strict beta, factor, or dollar neutrality.
+
+<sub>本项目仅用于量化研究与监控，不构成投资建议；板块数量均衡不等于严格的 beta、因子或美元敞口中性。</sub>
