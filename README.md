@@ -6,6 +6,15 @@
 
 This folder is a GitHub-ready Streamlit dashboard package. It contains only the presentation code and a compact snapshot of the latest complete production run. API keys, `.env`, training features, and server credentials are excluded.
 
+## 在线看板 / Live Dashboards
+
+- **A 股 / A-shares:** [打开 A 股看板 / Open the A-Share Dashboard](https://j38903016-lgtm-jerry-s-strategies-streamlit-app-a-share--u0bwwr.streamlit.app/)
+- **美股 / US stocks:** [打开美股看板 / Open the US Stock Dashboard](https://jerry-s-strategies-a6yz36oawephukzyvjbstu.streamlit.app/)
+
+A 股看板固定部署自 `a-share-dashboard` 分支；美股策略以 `main` 为主分支。
+
+The A-share dashboard is deployed from `a-share-dashboard`; the US-stock strategy remains the primary strategy on `main`.
+
 ## 部署方式 / Deployment
 
 1. 在 GitHub 新建一个仓库，把本目录中的全部文件上传到仓库根目录。
