@@ -10,6 +10,13 @@ The previous A-share root strategy is preserved on the [`a-share-archive-2026092
 
 <sub>原 A 股根策略已归档至 `a-share-archive-20260924`；`us-stock-dashboard` 分支继续同步，以兼容现有 Streamlit 部署。</sub>
 
+## Live dashboards
+
+- **US stocks:** [Open the US Stock Dashboard](https://jerry-s-strategies-a6yz36oawephukzyvjbstu.streamlit.app/)
+- **A-shares:** [Open the A-Share Dashboard](https://j38903016-lgtm-jerry-s-strategies-streamlit-app-a-share--u0bwwr.streamlit.app/)
+
+<sub>美股原链接保持不变；A 股看板已独立部署，并固定使用 `a-share-dashboard` 分支。</sub>
+
 ## Strategy at a glance
 
 - **Universe:** 16 balanced sector groups, 13 slots per group, 203 unique US-listed symbols.
