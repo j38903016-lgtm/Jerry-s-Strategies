@@ -85,7 +85,8 @@ BASELINE_US_SECTORS = {
 ADDED_US_SECTORS_20260922 = {
     "人工智能": ["ADBE", "NOW", "IBM"],
     "机器人": ["HON", "EMR", "ETN"],
-    "芯片": ["SWKS", "QRVO", "MTSI"],
+    # QRVO was replaced by CRUS on 2026-10-07 after the Qorvo merger and delisting.
+    "芯片": ["SWKS", "CRUS", "MTSI"],
     "半导体": ["GFS", "ENTG", "AMKR"],
     "银行": ["FITB", "STT", "NTRS"],
     "黄金": ["IAG", "AGI", "OR"],
