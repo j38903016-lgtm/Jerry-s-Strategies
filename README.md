@@ -41,6 +41,8 @@ PYTHONPATH=. .venv/bin/pytest -q
 
 `run_shadow_daily.sh` 只在发现新的完整生产 run 时计算，之后更新公开快照；它不会调用原 pipeline。`cron.example` 给出两个跨美东夏令时/冬令时的幂等尝试，第二次通常只是 no-op 或发布重试。
 
+当前服务器已单独安装该影子任务（`CRON_TZ=Asia/Shanghai` 下工作日 22:45、23:45 两次尝试）以及 sidecar 看板的 `@reboot` 启动项；原有美股 pipeline 的 cron 行保持不变。
+
 ## Dashboard 发布边界
 
 `streamlit_app.py` 可直接部署到 Streamlit Community Cloud。服务器已经启动独立的内网看板，但真正创建新的 `*.streamlit.app` 应用需要 Streamlit Cloud 账户会话；代码不能用 GitHub SSH 推送权限替代这一步。公开快照可用：
