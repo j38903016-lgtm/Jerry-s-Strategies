@@ -45,7 +45,7 @@ ADDED_SECTORS_20260922 = {
     "房地产": ["PLD", "AMT", "EQIX", "WELL", "SPG", "O", "DLR", "PSA", "CCI", "VICI", "ESS", "MAA", "CBRE"],
     "能源": ["XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "OXY", "KMI", "WMB", "LNG", "OKE"],
     "可选消费": ["TSLA", "HD", "MCD", "NKE", "SBUX", "LOW", "TJX", "BKNG", "CMG", "ORLY", "AZO", "MAR", "GM"],
-    "通信服务": ["NFLX", "DIS", "CMCSA", "T", "TMUS", "VZ", "CHTR", "LYV", "TTWO", "WBD", "SPOT", "FOXA", "PINS"],
+    "通信服务": ["NFLX", "DIS", "CMCSA", "T", "TMUS", "VZ", "CHTR", "LYV", "TTWO", "NWSA", "SPOT", "FOXA", "PINS"],
     "综合工业/国防": ["GE", "RTX", "LMT", "NOC", "GD", "BA", "CAT", "DE", "UPS", "FDX", "UNP", "CSX", "WM"],
     "保险": ["CB", "BRO", "AON", "PGR", "TRV", "ALL", "MET", "PRU", "AFL", "HIG", "ACGL", "CINF", "AJG"],
 }
