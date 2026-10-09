@@ -46,12 +46,19 @@ def render(database: str | Path) -> None:
     else:
         shown = recs[[
             "symbol", "primary_sector", "buy_probability", "chosen_horizon", "confidence",
-            "proposed_entry_date", "proposed_exit_date", "recommended_weight", "risk_contribution",
+            "proposed_entry_date", "proposed_exit_date", "exchange_calendar_exact",
+            "recommended_weight", "risk_contribution",
         ]].copy()
-        shown.columns = ["股票", "主板块", "买入概率", "持有交易日", "置信度", "拟入场", "拟退出", "建议权重", "风险贡献"]
+        shown["exchange_calendar_exact"] = shown["exchange_calendar_exact"].map(
+            {1: "XNYS", 0: "工作日近似"}
+        )
+        shown.columns = [
+            "股票", "主板块", "买入概率", "持有交易日", "置信度", "拟入场", "拟退出",
+            "交易日历", "建议权重", "风险贡献",
+        ]
         st.dataframe(
             shown.style.format({"买入概率": "{:.2%}", "建议权重": "{:.2%}", "风险贡献": "{:.2%}"}),
-            use_container_width=True,
+            width="stretch",
         )
         st.caption("当日买点仓位分配")
         st.bar_chart(shown.set_index("股票")[["建议权重"]])
@@ -71,7 +78,7 @@ def render(database: str | Path) -> None:
         st.line_chart(chart.pivot(index="horizon", columns="split", values="nw_sharpe"))
         st.dataframe(
             chart[["horizon", "split", "n_trades", "nw_sharpe", "total_return", "max_drawdown"]],
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
     with tabs[1]:
@@ -79,7 +86,7 @@ def render(database: str | Path) -> None:
         sector_frame = selections[selections["primary_sector"] == sector]
         st.caption(f"{sector}：逐股唯一持有期")
         st.bar_chart(sector_frame.sort_values("chosen_horizon").set_index("symbol")[["chosen_horizon"]])
-        st.dataframe(sector_frame, use_container_width=True)
+        st.dataframe(sector_frame, width="stretch")
     with tabs[2]:
         st.caption("开发段选择分数与最终样本外表现")
         st.scatter_chart(
@@ -91,6 +98,6 @@ def render(database: str | Path) -> None:
         )
         st.caption("最终样本外段从未参与持有期选择；它只用于审计，不回填寻优。")
     with tabs[3]:
-        st.dataframe(warnings, use_container_width=True, hide_index=True)
+        st.dataframe(warnings, width="stretch", hide_index=True)
         st.code("生产库连接：SQLite mode=ro + PRAGMA query_only=ON\n不写生产表，不下单，不导入 pipeline.py")
     conn.close()
