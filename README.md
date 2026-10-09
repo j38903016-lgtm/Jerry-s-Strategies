@@ -39,7 +39,7 @@ python -m venv .venv
 PYTHONPATH=. .venv/bin/pytest -q
 ```
 
-`cron.example` 只是模板，部署过程没有把它安装进 crontab。只有影子验证通过并得到授权后，才应增加独立调度；即使增加调度，也不应调用或修改原 pipeline。
+`run_shadow_daily.sh` 只在发现新的完整生产 run 时计算，之后更新公开快照；它不会调用原 pipeline。`cron.example` 给出两个跨美东夏令时/冬令时的幂等尝试，第二次通常只是 no-op 或发布重试。
 
 ## Dashboard 发布边界
 
@@ -51,3 +51,10 @@ python export_dashboard_snapshot.py
 
 公开仓库只应包含 `streamlit_app.py`、`optimizer/dashboard.py`、`optimizer/__init__.py`、依赖文件和 `data/optimizer.sqlite3`，不得包含生产数据库或 `.env`。
 
+当前公开部署坐标：
+
+- Repository: `j38903016-lgtm/Jerry-s-Strategies`
+- Branch: `holding-optimizer-dashboard`
+- Entry point: `streamlit_app.py`
+
+分支会由 `publish_dashboard_snapshot.sh` 独立更新。创建 `*.streamlit.app` URL 仍需在 Streamlit Cloud 的 “Create app” 页面选择上述三项。
