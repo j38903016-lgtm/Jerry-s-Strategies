@@ -67,6 +67,69 @@ FEATURE_COLS = [
     "Volume_Spike_Ratio", "PV_Composite_Spike",
 ]
 
+# 10.16新增：前三轮回测中最值得保留的8个候选实际训练的是下列底层因子，
+# bundle/pair/trio 名称仅为研究审计标记。这里按回测口径去重后加入11个连续特征，
+# 不增加硬过滤器，也不改变标签、XGBoost、阈值或交易状态机。
+FEATURE_COLS_20261016 = [
+    "return_consistency_5",
+    "higher_close_higher_low_fraction_3",
+    "signed_body_improvement_3_10",
+    "return_acceleration_3_10",
+    "days_since_low_10",
+    "market_downside_participation_change_3",
+    "market_new_low_contraction_3_20",
+    "market_up_breadth_3",
+    "sector_downside_participation_change_3",
+    "sector_up_breadth_3",
+    "sector_close_location_3",
+]
+# 10.16新增：保留8个候选与实际入模底层列的审计映射；模型使用其去重并集。
+FEATURE_CANDIDATES_20261016 = {
+    "bundle_acceptance_acceleration_environment": [
+        "return_consistency_5", "higher_close_higher_low_fraction_3",
+        "signed_body_improvement_3_10", "return_acceleration_3_10",
+        "market_downside_participation_change_3", "market_new_low_contraction_3_20",
+        "sector_downside_participation_change_3",
+    ],
+    "bundle_winner_up_breadth": [
+        "return_consistency_5", "higher_close_higher_low_fraction_3",
+        "signed_body_improvement_3_10", "return_acceleration_3_10",
+        "market_downside_participation_change_3", "market_new_low_contraction_3_20",
+        "sector_downside_participation_change_3", "market_up_breadth_3",
+        "sector_up_breadth_3",
+    ],
+    "bundle_winner_sector_close": [
+        "return_consistency_5", "higher_close_higher_low_fraction_3",
+        "signed_body_improvement_3_10", "return_acceleration_3_10",
+        "market_downside_participation_change_3", "market_new_low_contraction_3_20",
+        "sector_downside_participation_change_3", "sector_close_location_3",
+    ],
+    "bundle_core_market_sector_confirmation": [
+        "return_consistency_5", "higher_close_higher_low_fraction_3",
+        "signed_body_improvement_3_10", "return_acceleration_3_10", "days_since_low_10",
+        "market_downside_participation_change_3", "sector_downside_participation_change_3",
+    ],
+    "trio_consistency_intraday_acceptance": [
+        "return_consistency_5", "higher_close_higher_low_fraction_3",
+        "signed_body_improvement_3_10",
+    ],
+    "bundle_acceptance_acceleration": [
+        "return_consistency_5", "higher_close_higher_low_fraction_3",
+        "signed_body_improvement_3_10", "return_acceleration_3_10",
+    ],
+    "pair_consistency_signed_body_retest": [
+        "return_consistency_5", "signed_body_improvement_3_10",
+    ],
+    "pair_consistency_return_acceleration": [
+        "return_consistency_5", "return_acceleration_3_10",
+    ],
+}
+if {
+    column for columns in FEATURE_CANDIDATES_20261016.values() for column in columns
+} != set(FEATURE_COLS_20261016):
+    raise RuntimeError("10.16 candidate-to-feature mapping is inconsistent")
+FEATURE_COLS.extend(FEATURE_COLS_20261016)
+
 BASELINE_US_SECTORS = {
     # Original production universe retained unchanged.
     "人工智能": ["MSFT", "GOOGL", "AMZN", "META", "ORCL", "CRM", "PLTR", "NVDA", "AMD", "AVGO"],
@@ -198,6 +261,13 @@ def init_db(conn) -> None:
     CREATE INDEX IF NOT EXISTS idx_raw_symbol_date ON raw_daily(symbol,date);
     CREATE INDEX IF NOT EXISTS idx_predictions_symbol_date ON predictions(symbol,date);
     """)
+    # 10.16新增：只扩展特征存储列；兼容既有数据库和新建数据库。
+    existing_feature_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(features)")
+    }
+    for column in FEATURE_COLS_20261016:
+        if column not in existing_feature_columns:
+            conn.execute(f'ALTER TABLE features ADD COLUMN "{column}" REAL')
     conn.commit()
 
 
@@ -320,7 +390,165 @@ def clean_volume(value) -> float:
         return 0.0
 
 
-def compute_features(raw: pd.DataFrame) -> pd.DataFrame:
+def _days_since_min_20261016(values: np.ndarray) -> float:
+    """10.16新增：复用回测定义，返回窗口低点距当前的归一化交易日数。"""
+    if len(values) == 0 or not np.isfinite(values).any():
+        return np.nan
+    return float(len(values) - 1 - int(np.nanargmin(values))) / max(float(len(values)), 1.0)
+
+
+def _split_adjusted_copy_20261016(raw: pd.DataFrame) -> pd.DataFrame:
+    """10.16新增：仅为新增因子复用研究快照的拆股调整口径。"""
+    ordered = raw.sort_values("Date").reset_index(drop=True).copy()
+    for column in ("Open", "High", "Low", "Close", "Volume"):
+        ordered[column] = pd.to_numeric(ordered[column], errors="coerce")
+    previous_close = ordered["Close"].shift(1)
+    open_factor = ordered["Open"] / previous_close
+    adjustment = np.ones(len(ordered), dtype=float)
+    for index in range(1, len(ordered)):
+        factor = float(open_factor.iloc[index])
+        if not np.isfinite(factor) or factor <= 0.0:
+            continue
+        magnitude = max(factor, 1.0 / factor)
+        nearest = int(round(magnitude))
+        same_day = float(ordered.loc[index, "Close"] / ordered.loc[index, "Open"] - 1.0)
+        integer_close = 2 <= nearest <= 100 and abs(magnitude / nearest - 1.0) <= 0.06
+        if integer_close and abs(same_day) <= 0.25:
+            exact_factor = 1.0 / nearest if factor < 1.0 else float(nearest)
+            adjustment[:index] *= exact_factor
+    for column in ("Open", "High", "Low", "Close"):
+        ordered[column] = ordered[column].to_numpy(dtype=float) * adjustment
+    ordered["Volume"] = ordered["Volume"].to_numpy(dtype=float) / np.where(
+        adjustment == 0.0, 1.0, adjustment
+    )
+    return ordered
+
+
+def build_feature_context_20261016(conn) -> dict[str, pd.DataFrame]:
+    """10.16新增：一次性生成与回测一致的全市场及全行业连续因子。"""
+    placeholders = ",".join("?" for _ in STOCK_CODES)
+    panel = pd.read_sql_query(
+        f"SELECT symbol,date AS Date,open AS Open,high AS High,low AS Low,"
+        f"close AS Close,volume AS Volume FROM raw_daily "
+        f"WHERE symbol IN ({placeholders}) ORDER BY symbol,date",
+        conn,
+        params=STOCK_CODES,
+    )
+    if panel.empty:
+        return {}
+    panel["Date"] = pd.to_datetime(panel["Date"], errors="raise")
+    adjusted_parts = []
+    for symbol, group in panel.groupby("symbol", sort=False):
+        adjusted = _split_adjusted_copy_20261016(group.drop(columns="symbol"))
+        adjusted.insert(0, "symbol", symbol)
+        adjusted_parts.append(adjusted)
+    panel = pd.concat(adjusted_parts, ignore_index=True).sort_values(["symbol", "Date"])
+
+    # 全市场因子：下跌参与度收缩、新低收缩、三日上涨广度。
+    market_source = panel[["symbol", "Date", "Close"]].copy()
+    market_grouped = market_source.groupby("symbol", sort=False)
+    market_source["log_return"] = market_grouped["Close"].transform(
+        lambda values: np.log(values / values.shift(1))
+    )
+    market_source["return5"] = market_grouped["Close"].transform(
+        lambda values: values / values.shift(5) - 1.0
+    )
+    market_source["low20"] = market_grouped["Close"].transform(
+        lambda values: values.rolling(20, min_periods=20).min()
+    )
+    market_source["up1"] = (market_source["log_return"] > 0.0).astype(float).where(
+        market_source["log_return"].notna()
+    )
+    market_source["down5"] = (market_source["return5"] < 0.0).astype(float).where(
+        market_source["return5"].notna()
+    )
+    market_source["new_low20"] = (
+        market_source["Close"] <= market_source["low20"]
+    ).astype(float).where(market_source["low20"].notna())
+    market_daily = market_source.groupby("Date", as_index=False).agg(
+        _market_downside_participation_5=("down5", "mean"),
+        _market_up_breadth_1=("up1", "mean"),
+        _market_new_low_fraction_20=("new_low20", "mean"),
+    ).sort_values("Date")
+    market_daily["market_downside_participation_change_3"] = (
+        market_daily["_market_downside_participation_5"].shift(3)
+        - market_daily["_market_downside_participation_5"]
+    )
+    market_daily["market_new_low_contraction_3_20"] = (
+        market_daily["_market_new_low_fraction_20"].rolling(20, min_periods=20).mean()
+        - market_daily["_market_new_low_fraction_20"].rolling(3, min_periods=3).mean()
+    )
+    market_daily["market_up_breadth_3"] = market_daily[
+        "_market_up_breadth_1"
+    ].rolling(3, min_periods=3).mean()
+    market_columns = FEATURE_COLS_20261016[5:8]
+
+    # 行业因子：与研究框架相同，重复归属股票先分别计算、再按股票日期平均。
+    membership = pd.DataFrame(
+        [(sector, symbol) for sector, symbols in US_SECTORS.items() for symbol in symbols],
+        columns=["sector", "symbol"],
+    )
+    sector_source = panel[["symbol", "Date", "Open", "High", "Low", "Close"]].merge(
+        membership, on="symbol", how="inner", validate="many_to_many"
+    ).sort_values(["sector", "symbol", "Date"])
+    sector_grouped = sector_source.groupby(["sector", "symbol"], sort=False)
+    sector_source["log_return"] = sector_grouped["Close"].transform(
+        lambda values: np.log(values / values.shift(1))
+    )
+    sector_source["return5"] = sector_grouped["Close"].transform(
+        lambda values: values / values.shift(5) - 1.0
+    )
+    sector_source["up1"] = (sector_source["log_return"] > 0.0).astype(float).where(
+        sector_source["log_return"].notna()
+    )
+    sector_source["down5"] = (sector_source["return5"] < 0.0).astype(float).where(
+        sector_source["return5"].notna()
+    )
+    sector_source["clv"] = (
+        (2.0 * sector_source["Close"] - sector_source["High"] - sector_source["Low"])
+        / ((sector_source["High"] - sector_source["Low"]).abs() + 1e-12)
+    ).clip(-1.0, 1.0)
+    sector_daily = sector_source.groupby(["sector", "Date"], as_index=False).agg(
+        _sector_downside_participation_5=("down5", "mean"),
+        _sector_up_breadth_1=("up1", "mean"),
+        _sector_clv_1=("clv", "mean"),
+    ).sort_values(["sector", "Date"])
+    by_sector = sector_daily.groupby("sector", sort=False)
+    sector_daily["sector_downside_participation_change_3"] = by_sector[
+        "_sector_downside_participation_5"
+    ].transform(lambda values: values.shift(3) - values)
+    sector_daily["sector_up_breadth_3"] = by_sector[
+        "_sector_up_breadth_1"
+    ].transform(lambda values: values.rolling(3, min_periods=3).mean())
+    sector_daily["sector_close_location_3"] = by_sector["_sector_clv_1"].transform(
+        lambda values: values.rolling(3, min_periods=3).mean()
+    )
+    sector_columns = FEATURE_COLS_20261016[8:11]
+    sector_mapped = sector_source[["symbol", "sector", "Date"]].merge(
+        sector_daily[["sector", "Date", *sector_columns]],
+        on=["sector", "Date"],
+        how="left",
+        validate="many_to_one",
+    )
+    sector_mapped = sector_mapped.groupby(["symbol", "Date"], as_index=False)[
+        sector_columns
+    ].mean()
+
+    context = panel[["symbol", "Date"]].drop_duplicates().merge(
+        market_daily[["Date", *market_columns]], on="Date", how="left", validate="many_to_one"
+    ).merge(
+        sector_mapped, on=["symbol", "Date"], how="left", validate="one_to_one"
+    )
+    return {
+        symbol: group[["Date", *market_columns, *sector_columns]].reset_index(drop=True)
+        for symbol, group in context.groupby("symbol", sort=False)
+    }
+
+
+def compute_features(
+    raw: pd.DataFrame,
+    feature_context_20261016: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     c = raw["Close"].astype(float)
     o = raw["Open"].astype(float)
     v = raw["Volume"].astype(float).map(clean_volume)
@@ -344,6 +572,51 @@ def compute_features(raw: pd.DataFrame) -> pd.DataFrame:
     z = (log_return - mean) / (std + 1e-9)
     out["Volume_Spike_Ratio"] = (v / (v.rolling(w).median() + 1e-9)).clip(upper=10)
     out["PV_Composite_Spike"] = (np.sign(log_return) * z.abs() * out["Volume_Spike_Ratio"]).clip(-20, 20)
+
+    # 10.16新增：严格复用通过回测的5个个股底层特征公式。
+    adjusted = _split_adjusted_copy_20261016(raw)
+    adjusted_close = adjusted["Close"].astype(float)
+    adjusted_open = adjusted["Open"].astype(float)
+    adjusted_high = adjusted["High"].astype(float)
+    adjusted_low = adjusted["Low"].astype(float)
+    adjusted_return = np.log(adjusted_close / adjusted_close.shift(1))
+    adjusted_range = (adjusted_high - adjusted_low).abs()
+    signed_body = (adjusted_close - adjusted_open) / (adjusted_range + 1e-12)
+    out["return_consistency_5"] = (
+        adjusted_return.rolling(5, min_periods=5).mean()
+        / (adjusted_return.rolling(5, min_periods=5).std() + 1e-12)
+    ).clip(-10.0, 10.0).to_numpy()
+    out["higher_close_higher_low_fraction_3"] = (
+        ((adjusted_close > adjusted_close.shift(1)) & (adjusted_low > adjusted_low.shift(1)))
+        .astype(float).rolling(3, min_periods=3).mean().to_numpy()
+    )
+    out["signed_body_improvement_3_10"] = (
+        signed_body.rolling(3, min_periods=3).mean()
+        - signed_body.rolling(10, min_periods=10).mean()
+    ).to_numpy()
+    out["return_acceleration_3_10"] = (
+        adjusted_return.rolling(3, min_periods=3).mean()
+        - adjusted_return.rolling(10, min_periods=10).mean()
+    ).to_numpy()
+    out["days_since_low_10"] = adjusted_low.rolling(10, min_periods=10).apply(
+        _days_since_min_20261016, raw=True
+    ).to_numpy()
+
+    context_columns = FEATURE_COLS_20261016[5:]
+    if feature_context_20261016 is None or feature_context_20261016.empty:
+        for column in context_columns:
+            out[column] = np.nan
+    else:
+        context = feature_context_20261016.copy()
+        context["Date"] = pd.to_datetime(context["Date"], errors="raise")
+        aligned = raw[["Date"]].merge(
+            context[["Date", *context_columns]],
+            on="Date",
+            how="left",
+            validate="one_to_one",
+        )
+        for column in context_columns:
+            out[column] = pd.to_numeric(aligned[column], errors="coerce").to_numpy()
     return out.fillna(0)
 
 
@@ -579,7 +852,14 @@ def db_features_labels(conn, run_id: str, symbol: str, raw: pd.DataFrame, feats:
         feature_rows.append((symbol, date, *[float(feats.iloc[i][c]) for c in FEATURE_COLS], run_id))
         label = labels.iloc[i]
         label_rows.append((symbol, date, None if pd.isna(label) else int(label), run_id))
-    conn.executemany("INSERT OR REPLACE INTO features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", feature_rows)
+    # 10.16新增：显式列名使既有表扩展后仍保持稳定写入顺序。
+    feature_column_sql = ",".join(f'"{column}"' for column in FEATURE_COLS)
+    feature_placeholders = ",".join("?" for _ in range(len(FEATURE_COLS) + 3))
+    conn.executemany(
+        f"INSERT OR REPLACE INTO features(symbol,date,{feature_column_sql},run_id) "
+        f"VALUES ({feature_placeholders})",
+        feature_rows,
+    )
     conn.executemany("INSERT OR REPLACE INTO inflection_labels VALUES (?,?,?,?)", label_rows)
 
 
@@ -1086,6 +1366,7 @@ def compute_features_and_model_worker(
     run_id: str,
     symbol: str,
     raw: pd.DataFrame,
+    feature_context_20261016: pd.DataFrame,
     mode: str,
     model_mode: str,
 ) -> dict[str, str]:
@@ -1095,7 +1376,7 @@ def compute_features_and_model_worker(
     conn = sqlite3.connect(DB_PATH, timeout=60)
     conn.execute("PRAGMA busy_timeout=60000")
     try:
-        feats = compute_features(raw)
+        feats = compute_features(raw, feature_context_20261016)
         labels = compute_labels(raw)
         db_features_labels(conn, run_id, symbol, raw, feats, labels)
         conn.commit()
@@ -1296,6 +1577,8 @@ def run(mode: str, resume_run_id: str | None = None) -> int:
                 symbol for symbol in symbols
                 if symbol in raw_by_symbol and symbol not in set(pending_data)
             ]
+            # 10.16新增：全市场/全行业上下文只在父进程计算一次，再按股票传入原并行流程。
+            feature_context_20261016 = build_feature_context_20261016(conn)
             model_errors: dict[str, str] = {}
             for model_round in range(total_rounds):
                 if not model_pending:
@@ -1332,6 +1615,7 @@ def run(mode: str, resume_run_id: str | None = None) -> int:
                             run_id,
                             symbol,
                             raw_by_symbol[symbol],
+                            feature_context_20261016.get(symbol, pd.DataFrame()),
                             mode,
                             model_mode,
                         ): symbol
