@@ -20,8 +20,28 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+# Bound native thread pools before NumPy/sklearn/XGBoost load their runtimes.
+# XGBoost still uses XGB_N_JOBS (production: 4); BLAS helpers stay serial.
+# 2026-11-03: prevent 16 workers from each spawning ~128 helper threads.
+for _thread_variable in (
+    "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+):
+    os.environ[_thread_variable] = "1"
+os.environ["OMP_NUM_THREADS"] = str(max(1, int(os.environ.get("XGB_N_JOBS", "4"))))
+os.environ["OMP_WAIT_POLICY"] = "PASSIVE"
+
 import numpy as np
 import pandas as pd
+
+# CPU-only build of the same XGBoost version avoids CUDA driver initialization
+# during CPU training. Keep the GPU installation available for GPU mode.
+if os.environ.get("REQUIRE_GPU", "1") != "1":
+    _cpu_xgb_runtime = Path(os.environ.get(
+        "PIPELINE_CPU_XGB_RUNTIME", "/data/us_stock_pipeline/runtime_cpu_xgb_3_2_0"
+    ))
+    if (_cpu_xgb_runtime / "xgboost" / "__init__.py").is_file():
+        sys.path.insert(0, str(_cpu_xgb_runtime))
 
 try:
     import optuna
@@ -1427,6 +1447,7 @@ def run(mode: str, resume_run_id: str | None = None) -> int:
         )
         conn.commit()
     log.info("run=%s GPU=%s", run_id, info.replace("\n", "; "))
+    log.info("XGBoost runtime: version=%s module=%s", xgb.__version__, xgb.__file__)
     log.info(
         "model execution: device=%s workers=%d xgb_n_jobs=%d",
         "gpu" if os.environ.get("REQUIRE_GPU", "1") == "1" else "cpu",
